@@ -40,16 +40,23 @@ func Login(c *gin.Context) {
 	users := new(models.Users) //Prepare Variable for Payloads
 	hash_password := ""
 
+	type Users_Login struct {
+		Username     string `json:"Username" binding:"required"`
+		Password     string `json:"Password" binding:"required"`
+		Nama_lengkap string `json:"Nama_lengkap" binding:"-"`
+	}
+
+	var users_login Users_Login
 	//Get The Payloads
-	if err := c.Bind(users); err != nil {
+	if err := c.BindJSON(&users_login); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"message": "Payload Error",
+			"message": err.Error(),
 		})
 		return
 	}
 
 	//Get The Record from DB
-	query := "SELECT password,nama_lengkap FROM  " + users.TableName() + "  WHERE username='" + users.Username + "' LIMIT 1"
+	query := "SELECT password,nama_lengkap FROM  " + users.TableName() + "  WHERE username='" + users_login.Username + "' LIMIT 1"
 	rows, err := con.Query(query)
 	defer con.Close()
 	if err != nil {
@@ -60,13 +67,13 @@ func Login(c *gin.Context) {
 	}
 	for rows.Next() {
 
-		if err := rows.Scan(&hash_password, &users.Nama_lengkap); err != nil {
+		if err := rows.Scan(&hash_password, &users_login.Nama_lengkap); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"message": err.Error(),
 			})
 			return
 		} else {
-			if comparePasswords(hash_password, []byte(users.Password)) {
+			if comparePasswords(hash_password, []byte(users_login.Password)) {
 				sign := jwt.New(jwt.GetSigningMethod("HS256"))
 				token, err := sign.SignedString([]byte("secret"))
 				if err != nil {
@@ -76,7 +83,8 @@ func Login(c *gin.Context) {
 					c.Abort()
 				}
 				c.JSON(http.StatusOK, gin.H{
-					"token": token,
+					"username": users_login.Username,
+					"token":    token,
 				})
 				return
 			}
@@ -107,6 +115,27 @@ func Register(c *gin.Context) {
 	users_payload.Id = uuid.Must(uuid.NewRandom())
 	users_payload.Created_at = time.Now()
 	users_payload.Password = hashAndSalt([]byte(users_payload.Password))
+
+	//Check is there same Username or not on DB
+	query := "SELECT username FROM  " + users.TableName() + "  WHERE username='" + users_payload.Username + "' LIMIT 1"
+	rows, err := con.Query(query)
+	defer con.Close()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"message": err.Error(),
+		})
+		return
+	}
+	counter := 0
+	for rows.Next() {
+		counter += 1
+	}
+	if counter > 0 {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"message": "Username already registered",
+		})
+		return
+	}
 
 	//Store the Data to DB
 	insForm, err := con.Prepare("INSERT INTO " + users.TableName() + " (id,username,password,nama_lengkap,created_at) VALUES(?,?,?,?,?)")
