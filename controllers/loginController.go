@@ -35,6 +35,13 @@ func comparePasswords(hashedPwd string, plainPwd []byte) bool {
 	return true
 }
 
+func Logincheck(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{
+		"auth": true,
+	})
+	return
+}
+
 func Login(c *gin.Context) {
 	con := db.CreateCon()      //Prepare DB Connection
 	users := new(models.Users) //Prepare Variable for Payloads
@@ -74,8 +81,12 @@ func Login(c *gin.Context) {
 			return
 		} else {
 			if comparePasswords(hash_password, []byte(users_login.Password)) {
-				sign := jwt.New(jwt.GetSigningMethod("HS256"))
-				token, err := sign.SignedString([]byte("secret"))
+				atClaims := jwt.MapClaims{}
+				atClaims["authorized"] = true
+				atClaims["username"] = users_login.Username
+				atClaims["exp"] = time.Now().Add(time.Hour * 24 * 7).Unix()
+				at := jwt.NewWithClaims(jwt.SigningMethodHS256, atClaims)
+				token, err := at.SignedString([]byte("secret"))
 				if err != nil {
 					c.JSON(http.StatusInternalServerError, gin.H{
 						"message": err.Error(),
